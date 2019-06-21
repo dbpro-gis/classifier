@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 import imageio
 import sklearn as sk
-from sklearn import neighbors
+from sklearn import neighbors, model_selection
 
 
 sns.set()
@@ -173,20 +173,21 @@ def main():
 
     x_test, y_test = preprocess_svm(*create_np_data(sampled_2019))
 
-    print("Training model")
-    model = neighbors.KNeighborsClassifier()
-    model.fit(x_train, y_train)
+    for n in [2, 5, 10]:
+        print("Training model")
+        model = neighbors.KNeighborsClassifier(n_neighbors=n)
+        model.fit(x_train, y_train)
 
-    print("Predicting using model")
-    result = model.predict(x_test)
-    correct = 0
-    for pred, actual in zip(result, y_test):
-        if pred == actual:
-            correct += 1
-    print("Acc", correct / len(result))
+        print("Predicting using model")
+        result = model.predict(x_test)
+        correct = 0
+        for pred, actual in zip(result, y_test):
+            if pred == actual:
+                correct += 1
+        print(f"Acc (n = {n})", correct / len(result))
 
-    # overview_data(dataset_dir / "2018")
-    # overview_data(dataset_dir / "2019")
+        # overview_data(dataset_dir / "2018")
+        # overview_data(dataset_dir / "2019")
 
 
 if __name__ == "__main__":
