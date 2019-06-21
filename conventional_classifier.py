@@ -20,13 +20,27 @@ DATASET_PATH = os.environ["DBPRO_DATASET"]
 REGEX_PERCENTAGE = re.compile(r"^t.*_p(\d\.\d{2})$")
 
 
-def overview_data(path: Path):
+CORINE_MAP = {
+    "11": "Urban fabric",
+    "12": "Transport",
+    "13": "Mine, dump, construction sites"
+}
+CORINE_MAP_L1 = {
+    "1": "Artificial",
+    "2": "Agricultural",
+    "3": "Forest",
+    "4": "Wetlands",
+    "5": "Water",
+}
+
+
+def overview_data(path: Path, name: str):
     classes = collections.defaultdict(list)
     for class_dir in path.iterdir():
         if not class_dir.is_dir():
             continue
         class_name = class_dir.name
-        for image_path in class_dir.iterdir():
+        for image_path in class_dir.glob("t*.png"):
             percentage = float(REGEX_PERCENTAGE.match(image_path.stem)[1])
             classes[class_name].append(percentage)
 
@@ -39,8 +53,12 @@ def overview_data(path: Path):
         l1_classes[name[:1]] += data
     for name, data in l1_classes.items():
         print(name, len(data))
-        sns.kdeplot(data, label=name)
-    plt.savefig(f"test.png")
+        sns.kdeplot(data, label=CORINE_MAP_L1[name], shade=True)
+    plt.xlim(0, 1)
+    plt.title("Distribution of major CLC label in patches")
+    plt.xlabel("Ratio of highest class")
+    plt.tight_layout()
+    plt.savefig(f"l1_{name}.png")
     plt.close()
 
     # for prefix in ["1", "2", "3", "4", "5"]:
@@ -139,6 +157,8 @@ def preprocess_svm(x_data, y_data):
 
 def main():
     dataset_dir = Path(DATASET_PATH)
+    # overview_data(dataset_dir / "2018", "2018v2")
+    # overview_data(dataset_dir / "2019", "2019v2")
     ds_2018 = Dataset(dataset_dir / "2018")
     ds_2018_high = ds_2018.filter(0.4)
     print(ds_2018_high.l2_counts)
@@ -146,6 +166,7 @@ def main():
     ds_2019 = Dataset(dataset_dir / "2019")
     ds_2019_high = ds_2019.filter(0.4)
     print(ds_2019_high.l2_counts)
+
 
     # l2_2018 = ds_2018_high.l2
     # l2_2019 = ds_2019_high.l2
@@ -185,9 +206,6 @@ def main():
             if pred == actual:
                 correct += 1
         print(f"Acc (n = {n})", correct / len(result))
-
-        # overview_data(dataset_dir / "2018")
-        # overview_data(dataset_dir / "2019")
 
 
 if __name__ == "__main__":
