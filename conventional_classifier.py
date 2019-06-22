@@ -2,8 +2,10 @@ import os
 import re
 from pathlib import Path
 import collections
+import random
 
 import numpy as np
+import pandas as pd
 
 import matplotlib as mpl
 mpl.use("Agg")
@@ -11,8 +13,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 import imageio
-import sklearn as sk
-from sklearn import neighbors, model_selection
+from sklearn import neighbors, model_selection, preprocessing, ensemble, svm
 
 
 sns.set()
@@ -20,11 +21,24 @@ DATASET_PATH = os.environ["DBPRO_DATASET"]
 REGEX_PERCENTAGE = re.compile(r"^t.*_p(\d\.\d{2})$")
 
 
-CORINE_MAP = {
+CORINE_MAP_L2 = {
     "11": "Urban fabric",
-    "12": "Transport",
-    "13": "Mine, dump, construction sites"
+    "12": "Industrial, comercial and transport units",
+    "13": "Mine, dump and construction sites",
+    "14": "Artificial, non-agricultural vegetated areas",
+    "21": "Arable land",
+    "22": "Permanent crops",
+    "23": "Pastures",
+    "24": "Heterogenous agricultural areas",
+    "31": "Forest",
+    "32": "Shrub and/or herbaceous vegetation associations",
+    "33": "Open spaces with little or no vegetation",
+    "41": "Inland wetlands",
+    "42": "Coastal wetlands",
+    "51": "Inland waters",
+    "52": "Marine waters",
 }
+
 CORINE_MAP_L1 = {
     "1": "Artificial",
     "2": "Agricultural",
@@ -60,16 +74,6 @@ def overview_data(path: Path, name: str):
     plt.tight_layout()
     plt.savefig(f"l1_{name}.png")
     plt.close()
-
-    # for prefix in ["1", "2", "3", "4", "5"]:
-    #     for name, data in l2_classes.items():
-    #         if not name.startswith(prefix):
-    #             continue
-    #         print(name, len(data))
-    #         sns.kdeplot(data, label=name)
-    #     plt.tight_layout()
-    #     plt.savefig(f"test_{prefix}.png")
-    #     plt.close()
 
 
 class Image:
@@ -140,6 +144,11 @@ class Dataset:
                 counts[image_level] += 1
         return self.__class__(data)
 
+    def split(self, train):
+        """Split dataset into train and test dataset."""
+        data = random.sample(self.data, len(self.data))
+        return self.__class__(data[:train]), self.__class__(data[train:])
+
 
 def create_np_data(dataset: Dataset, level="l2"):
     imgs = []
@@ -150,22 +159,52 @@ def create_np_data(dataset: Dataset, level="l2"):
     return imgs, labels
 
 
-def preprocess_svm(x_data, y_data):
+def preprocess_svm(x_data, y_data, scaler=None):
     x_data = [np.ravel(i) for i in x_data]
-    return x_data, y_data
+    return x_data, y_data, None
+
+
+def preprocess_randomforest(x_data, y_data, scaler=None):
+    x_data = [np.ravel(i) for i in x_data]
+    if scaler is None:
+        scaler = preprocessing.MinMaxScaler()
+        scaler.fit(x_data)
+    x_data = scaler.transform(x_data)
+    return x_data, y_data, scaler
+
+
+
+def count_tables(path, name):
+    l1_counts = {}
+    for year in ["2018", "2019"]:
+        dataset = Dataset(path / year)
+        final_dict = {}
+        l2_counts = dataset.l2_counts
+        for l1, count in dataset.l1_counts.items():
+            matched_keys = sorted([k for k in l2_counts if k.startswith(l1)])
+            for k in matched_keys:
+                final_dict[".".join(list(k)) + " " + CORINE_MAP_L2[k]] = l2_counts[k]
+            final_dict[l1 + " " + CORINE_MAP_L1[l1]] = count
+        l1_counts[year] = final_dict
+
+    l1_table = pd.DataFrame.from_dict(l1_counts)
+    print(l1_table)
+    with open(f"{name}.tex", "w") as lfile:
+        lfile.write(l1_table.to_latex())
 
 
 def main():
     dataset_dir = Path(DATASET_PATH)
     # overview_data(dataset_dir / "2018", "2018v2")
     # overview_data(dataset_dir / "2019", "2019v2")
+    # count_tables(dataset_dir, "better_counts_l1")
     ds_2018 = Dataset(dataset_dir / "2018")
-    ds_2018_high = ds_2018.filter(0.4)
-    print(ds_2018_high.l2_counts)
+    ds_2018_high = ds_2018.filter(0.5)
+    print(ds_2018_high.l1_counts)
 
     ds_2019 = Dataset(dataset_dir / "2019")
-    ds_2019_high = ds_2019.filter(0.4)
-    print(ds_2019_high.l2_counts)
+    ds_2019_high = ds_2019.filter(0.5)
+    print(ds_2019_high.l1_counts)
 
 
     # l2_2018 = ds_2018_high.l2
@@ -186,26 +225,61 @@ def main():
         "51", "52"
     ]
 
-    sampled_2018 = ds_2018_high.sample_each(100, classes=classes)
-    sampled_2019 = ds_2019_high.sample_each(100, classes=classes)
+    classes_l1 = ["1", "2", "3", "4", "5"]
+    level = "l1"
 
-    x_train, y_train = create_np_data(sampled_2018)
-    x_train, y_train = preprocess_svm(x_train, y_train)
+    sampled_2018 = ds_2018_high.sample_each(200, classes=classes_l1, level=level)
+    # sampled_2019 = ds_2019_high.sample_each(100, classes=classes_l1, level=level)
+    train, test = sampled_2018.split(train=100)
 
-    x_test, y_test = preprocess_svm(*create_np_data(sampled_2019))
+    models = [
+        [
+            "kNN (n = {})",
+            preprocess_svm,
+            lambda n: neighbors.KNeighborsClassifier(n_neighbors=n, n_jobs=10),
+            [2, 5, 10, 20]
+        ],
+        [
+            "RandomForest (estimators = {})",
+            preprocess_randomforest,
+            lambda n: ensemble.RandomForestClassifier(n_estimators=n),
+            [10, 100, 1000],
+        ],
+        [
+            "Linear SVM (C = {})",
+            preprocess_randomforest,
+            lambda n: svm.LinearSVC(C=n),
+            [0.1, 1, 10]
+        ],
+    ]
+    tests = {}
+    for label, preprocess, modelfun, grid in models:
+        results = []
 
-    for n in [2, 5, 10]:
-        print("Training model")
-        model = neighbors.KNeighborsClassifier(n_neighbors=n)
-        model.fit(x_train, y_train)
+        x_train, y_train, scaler = preprocess(*create_np_data(train, level=level))
+        x_test, y_test, _ = preprocess(*create_np_data(test, level=level), scaler=scaler)
+        for n in grid:
+            print("Training model")
+            model = modelfun(n)
+            model.fit(x_train, y_train)
 
-        print("Predicting using model")
-        result = model.predict(x_test)
-        correct = 0
-        for pred, actual in zip(result, y_test):
-            if pred == actual:
-                correct += 1
-        print(f"Acc (n = {n})", correct / len(result))
+            print("Predicting using model")
+            result = model.predict(x_test)
+            correct = 0
+            for pred, actual in zip(result, y_test):
+                if pred == actual:
+                    correct += 1
+            print(f"Acc (n = {n})", correct / len(result))
+            acc = correct / len(result)
+            results.append((n, acc))
+        best_n, best_acc = max(results, key=lambda r: r[1])
+        fmt_label = label.format(best_n)
+        tests[fmt_label] = {"Accuracy": best_acc}
+
+    result_df = pd.DataFrame.from_dict(tests, orient="index")
+    print(result_df)
+    with open("better-classification.tex", "w") as cfile:
+        cfile.write(result_df.to_latex())
 
 
 if __name__ == "__main__":
