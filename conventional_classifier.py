@@ -19,6 +19,7 @@ from sklearn import neighbors, model_selection, preprocessing, ensemble, svm
 sns.set()
 DATASET_PATH = os.environ["DBPRO_DATASET"]
 REGEX_PERCENTAGE = re.compile(r"^t.*_p(\d\.\d{2})$")
+REGEX_NAME = re.compile(r"^(t.*)_p\d\.\d{2}$")
 
 
 CORINE_MAP_L2 = {
@@ -81,6 +82,7 @@ class Image:
         if isinstance(path, self.__class__):
             path = path.path
 
+        self.name = REGEX_NAME.match(path.stem)[1]
         self.percentage = float(REGEX_PERCENTAGE.match(path.stem)[1])
         self.label = str(path.parent.name)
         self.l1 = self.label[0]
@@ -144,6 +146,13 @@ class Dataset:
                 counts[image_level] += 1
         return self.__class__(data)
 
+    def save_prediction(self, preds, destination):
+        pred_json = []
+        for img_obj, pred in zip(self.data, preds):
+            pred_json.append({"name": img_obj.name, "pred": pred})
+        pred_df = pd.DataFrame(pred_json)
+        pred_df.to_csv(destination + ".csv", index=False)
+
     def split(self, train):
         """Split dataset into train and test dataset."""
         data = random.sample(self.data, len(self.data))
@@ -194,17 +203,17 @@ def count_tables(path, name):
 
 
 def main():
-    dataset_dir = Path(DATASET_PATH)
+    dataset_dir = Path("../sentinel-data/final-dataset")
     # overview_data(dataset_dir / "2018", "2018v2")
     # overview_data(dataset_dir / "2019", "2019v2")
-    # count_tables(dataset_dir, "better_counts_l1")
+    # count_tables(dataset_dir, "final_counts_l1")
     ds_2018 = Dataset(dataset_dir / "2018")
     ds_2018_high = ds_2018.filter(0.5)
     print(ds_2018_high.l1_counts)
 
-    ds_2019 = Dataset(dataset_dir / "2019")
-    ds_2019_high = ds_2019.filter(0.5)
-    print(ds_2019_high.l1_counts)
+    # ds_2019 = Dataset(dataset_dir / "2019")
+    # ds_2019_high = ds_2019.filter(0.5)
+    # print(ds_2019_high.l1_counts)
 
 
     # l2_2018 = ds_2018_high.l2
@@ -234,18 +243,21 @@ def main():
 
     models = [
         [
+            "knn",
             "kNN (n = {})",
             preprocess_svm,
             lambda n: neighbors.KNeighborsClassifier(n_neighbors=n, n_jobs=10),
             [2, 5, 10, 20]
         ],
         [
+            "randomforest",
             "RandomForest (estimators = {})",
             preprocess_randomforest,
             lambda n: ensemble.RandomForestClassifier(n_estimators=n),
             [10, 100, 1000],
         ],
         [
+            "svm",
             "Linear SVM (C = {})",
             preprocess_randomforest,
             lambda n: svm.LinearSVC(C=n),
@@ -253,7 +265,7 @@ def main():
         ],
     ]
     tests = {}
-    for label, preprocess, modelfun, grid in models:
+    for model_name, label, preprocess, modelfun, grid in models:
         results = []
 
         x_train, y_train, scaler = preprocess(*create_np_data(train, level=level))
@@ -269,6 +281,7 @@ def main():
             for pred, actual in zip(result, y_test):
                 if pred == actual:
                     correct += 1
+            test.save_prediction(result, f"final_pred_{model_name}")
             print(f"Acc (n = {n})", correct / len(result))
             acc = correct / len(result)
             results.append((n, acc))
@@ -278,7 +291,7 @@ def main():
 
     result_df = pd.DataFrame.from_dict(tests, orient="index")
     print(result_df)
-    with open("better-classification.tex", "w") as cfile:
+    with open("final-classification.tex", "w") as cfile:
         cfile.write(result_df.to_latex())
 
 
