@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 import collections
 import random
+from argparse import ArgumentParser
 
 import numpy as np
 import pandas as pd
@@ -151,7 +152,7 @@ class Dataset:
         for img_obj, pred in zip(self.data, preds):
             pred_json.append({"name": img_obj.name, "pred": pred})
         pred_df = pd.DataFrame(pred_json)
-        pred_df.to_csv(destination + ".csv", index=False)
+        pred_df.to_csv(str(destination) + ".csv", index=False)
 
     def split(self, train):
         """Split dataset into train and test dataset."""
@@ -183,6 +184,15 @@ def preprocess_randomforest(x_data, y_data, scaler=None):
 
 
 
+def batched_generate(dataset, batch_size=100):
+    num_files = len(dataset.data)
+    for i in range(0, num_files, batch_size):
+        start = i
+        end = min(num_files, start + batch_size)
+        batch = Dataset(dataset.data[start:end])
+        yield batch
+
+
 def count_tables(path, name):
     l1_counts = {}
     for year in ["2018", "2019"]:
@@ -202,43 +212,28 @@ def count_tables(path, name):
         lfile.write(l1_table.to_latex())
 
 
-def main():
-    dataset_dir = Path("../sentinel-data/final-dataset")
-    # overview_data(dataset_dir / "2018", "2018v2")
-    # overview_data(dataset_dir / "2019", "2019v2")
-    # count_tables(dataset_dir, "final_counts_l1")
+def main(args):
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    dataset_dir = Path(args.input)
     ds_2018 = Dataset(dataset_dir / "2018")
-    ds_2018_high = ds_2018.filter(0.5)
-    print(ds_2018_high.l1_counts)
-
-    # ds_2019 = Dataset(dataset_dir / "2019")
-    # ds_2019_high = ds_2019.filter(0.5)
-    # print(ds_2019_high.l1_counts)
-
-
-    # l2_2018 = ds_2018_high.l2
-    # l2_2019 = ds_2019_high.l2
-    # for l in l2_2018:
-    #     if l not in l2_2019:
-    #         print("Not in 2019", l)
-    # for l in l2_2019:
-    #     if l not in l2_2018:
-    #         print("Not in 2018", l)
 
     # Classification classes initial
-    classes = [
-        "11", "12", "13", "14",
-        "21", "22", "23", "24",
-        "31", "32",
-        "41", "42",
-        "51", "52"
-    ]
+    classes = {
+        "l1": ["1", "2", "3", "4", "5"],
+        "l2": [
+            "11", "12", "13", "14",
+            "21", "22", "23", "24",
+            "31", "32",
+            "41", "42",
+            "51", "52"
+        ],
+    }
 
-    classes_l1 = ["1", "2", "3", "4", "5"]
-    level = "l1"
+    level = args.level
 
-    sampled_2018 = ds_2018_high.sample_each(200, classes=classes_l1, level=level)
-    # sampled_2019 = ds_2019_high.sample_each(100, classes=classes_l1, level=level)
+    sampled_2018 = ds_2018.sample_each(200, classes=classes[level], level=level)
     train, test = sampled_2018.split(train=100)
 
     models = [
@@ -265,6 +260,7 @@ def main():
         ],
     ]
     tests = {}
+    best_model = ()
     for model_name, label, preprocess, modelfun, grid in models:
         results = []
 
@@ -281,19 +277,36 @@ def main():
             for pred, actual in zip(result, y_test):
                 if pred == actual:
                     correct += 1
-            test.save_prediction(result, f"final_pred_{model_name}")
+            test.save_prediction(result, output_dir / f"final_pred_{model_name}")
             print(f"Acc (n = {n})", correct / len(result))
             acc = correct / len(result)
+            if not best_model or acc > best_model[0]:
+                best_model = (acc, model_name, preprocess, scaler, model)
             results.append((n, acc))
         best_n, best_acc = max(results, key=lambda r: r[1])
         fmt_label = label.format(best_n)
         tests[fmt_label] = {"Accuracy": best_acc}
 
+    if args.predict:
+        print("Using best model to predict 2019 data")
+        ds_2019 = Dataset(dataset_dir / "2019")
+        all_preds = []
+        for batch in batched_generate(ds_2019, batch_size=100):
+            test_2019, _, _ = best_model[2](*create_np_data(batch), scaler=best_model[3])
+            preds = best_model[4].predict(test_2019)
+            all_preds += list(preds)
+        ds_2019.save_prediction(all_preds, output_dir / "pred_2019")
+
     result_df = pd.DataFrame.from_dict(tests, orient="index")
     print(result_df)
-    with open("final-classification.tex", "w") as cfile:
+    with open(str(output_dir / "results.tex"), "w") as cfile:
         cfile.write(result_df.to_latex())
 
 
 if __name__ == "__main__":
-    main()
+    PARSER = ArgumentParser()
+    PARSER.add_argument("--predict", help="Predict 2019 data", action="store_true")
+    PARSER.add_argument("--level", choices=("l1", "l2"), default="l1")
+    PARSER.add_argument("input", help="Input dataset")
+    PARSER.add_argument("output", help="Output classification result tables")
+    main(PARSER.parse_args())
