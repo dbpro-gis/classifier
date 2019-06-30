@@ -102,6 +102,7 @@ class Dataset:
         if isinstance(path, list):
             self.data = path
         else:
+            path = Path(path)
             classes = collections.defaultdict(list)
             self.data = [Image(p) for p in path.glob("**/t*.png")]
 
@@ -233,31 +234,32 @@ def main(args):
 
     level = args.level
 
-    sampled_2018 = ds_2018.sample_each(200, classes=classes[level], level=level)
-    train, test = sampled_2018.split(train=100)
+    sampled_2018 = ds_2018.sample_each(300, classes=classes[level], level=level)
+    train, test = sampled_2018.split(train=200)
 
     models = [
-        [
-            "knn",
-            "kNN (n = {})",
-            preprocess_svm,
-            lambda n: neighbors.KNeighborsClassifier(n_neighbors=n, n_jobs=10),
-            [2, 5, 10, 20]
-        ],
+        # [
+        #     "knn",
+        #     "kNN (n = {})",
+        #     preprocess_svm,
+        #     lambda n: neighbors.KNeighborsClassifier(n_neighbors=n, n_jobs=10),
+        #     [2, 5, 10, 20]
+        # ],
         [
             "randomforest",
             "RandomForest (estimators = {})",
             preprocess_randomforest,
             lambda n: ensemble.RandomForestClassifier(n_estimators=n),
-            [10, 100, 1000],
+            # [10, 100, 1000],
+            [1000],
         ],
-        [
-            "svm",
-            "Linear SVM (C = {})",
-            preprocess_randomforest,
-            lambda n: svm.LinearSVC(C=n),
-            [0.1, 1, 10]
-        ],
+        # [
+        #     "svm",
+        #     "Linear SVM (C = {})",
+        #     preprocess_randomforest,
+        #     lambda n: svm.LinearSVC(C=n),
+        #     [0.1, 1, 10]
+        # ],
     ]
     tests = {}
     best_model = ()
