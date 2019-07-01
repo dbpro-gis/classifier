@@ -15,22 +15,20 @@ import numpy as np
 import os
 import warnings
 
-from tensorflow.keras.applications import VGG16
+from keras.applications import VGG16
 
-
-from tensorflow.keras import applications
-from tensorflow.keras import optimizers
-from tensorflow.keras.models import Sequential
-from tensorflow.keras import models
-from tensorflow.keras import layers
-from tensorflow.keras import optimizers
-from tensorflow.keras.utils import to_categorical
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from keras import applications
+from keras import optimizers
+from keras.models import Sequential
+from keras import models
+from keras import layers
+from keras import optimizers
+from keras.utils import to_categorical
+from keras.preprocessing.image import ImageDataGenerator
 
 from distutils.dir_util import copy_tree
 
 from sklearn.metrics import accuracy_score,confusion_matrix,classification_report
-
 
 from argparse import ArgumentParser
 
@@ -43,6 +41,8 @@ import random
 import datetime
 
 import json
+
+from sklearn.utils import class_weight
 
 
 
@@ -167,17 +167,16 @@ for subfolder_name in subfolder_names:
             
             
 # creating model
-
+from keras.applications.resnet50 import ResNet50
 """ model Parameters """
 
-img_width, img_height = 64, 64
+img_width, img_height = 120, 120
 channels_number = 3
 epochs = 30
-batch_size = 20
-dateset_name = "Eurosat"
+batch_size = 100
+dateset_name = "Corina"
 cnn_network = "VGG16"
-batchsize = 100
-unforzen_layers_size=4
+unforzen_layers_size=2
 
 
 """"""
@@ -193,9 +192,9 @@ validate_samples_size = sum( len(validate_images[class_name]) for class_name in 
 
     
     
+
 # Create the model
 vgg_conv = VGG16(weights='imagenet', include_top=False, input_shape=(img_width, img_height, channels_number))
-
 
 # Freeze the layers except the last 4 layers
 for layer in vgg_conv.layers[:-unforzen_layers_size]:
@@ -210,10 +209,10 @@ model.add(vgg_conv)
 # Add the classifier
 model.add(layers.Flatten())
 model.add(layers.Dense(256, activation='relu'))
-model.add(layers.Dropout(0.5))
+model.add(layers.Dropout(0.7))
 model.add(layers.Dense(classes_num, activation='softmax'))
 
-train_datagen = ImageDataGenerator(rescale=1./255)
+train_datagen = ImageDataGenerator(rescale=1./255,rotation_range=90)
  
 validation_datagen = ImageDataGenerator(rescale=1./255)
 
@@ -238,8 +237,16 @@ validation_generator = validation_datagen.flow_from_directory(
 
 # Compile the model
 model.compile(loss='categorical_crossentropy',
-              optimizer= optimizers.Adam(lr=0.001),
+              optimizer= optimizers.Adam(lr=0.0001),
               metrics=['accuracy'])
+
+from collections import Counter
+
+counter = Counter(train_generator.classes)                          
+max_val = float(max(counter.values()))       
+
+class_weight = {class_id : max_val/num_images for class_id, num_images in counter.items()}  
+
 # Train the model
 history = model.fit_generator(
       train_generator,
@@ -247,7 +254,7 @@ history = model.fit_generator(
       epochs=epochs,
       validation_data=validation_generator,
       validation_steps=validation_generator.samples/validation_generator.batch_size,
-      verbose=1)
+      verbose=1,class_weight=class_weight)
 
 # saving model , its metadata and history
 
@@ -267,7 +274,7 @@ model_metadata = {
     "cnn_network" : cnn_network,
     "test_percentage" : test_percentage,
     "validate_percentage" : validate_percentage,
-    "batchsize" : batchsize,
+    "batchsize" : batch_size,
     "unforzen_layers_size":unforzen_layers_size
 }
 
@@ -301,8 +308,8 @@ plt.savefig(model_folder+"/"+'training_loss_validation_lose.png')
 figs.append(plt.figure(1))
 figs[1].clear()
 x = np.arange(1, epochs+1)
-plt.plot(x, history.history['accuracy'])
-plt.plot(x, history.history['val_accuracy'])
+plt.plot(x, history.history['acc'])
+plt.plot(x, history.history['val_acc'])
 plt.grid(linestyle='--')
 plt.title('Training accuracy,Validation accuracy')
 plt.ylabel('accuracy')
@@ -399,16 +406,13 @@ plt.savefig(model_folder+"/"+'confusion_matrix.png')
 
 plot_confusion_matrix(test_generator.classes, predicted_classes, classes=classes_names,
                       normalize=True,
-                      title='Confusion matrix, without normalization, test_acc = '+str(test_accuracy)+"%")
+                      title='Confusion matrix, without normalization, test_acc = '+str(test_accuracy)+"%",)
 
 fig = matplotlib.pyplot.gcf()
 fig.set_size_inches(12, 12,forward=True)
 
 plt.savefig(model_folder+"/"+'normalised_confusion_matrix.png')
 
-
-from tensorflow.python.client import device_lib
-print(device_lib.list_local_devices())
 
 
 
