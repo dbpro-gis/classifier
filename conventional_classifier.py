@@ -51,6 +51,7 @@ CORINE_MAP_L1 = {
 
 
 def overview_data(path: Path, name: str):
+    """Plot distribution of CLC label ratio in tiles."""
     classes = collections.defaultdict(list)
     for class_dir in path.iterdir():
         if not class_dir.is_dir():
@@ -79,6 +80,7 @@ def overview_data(path: Path, name: str):
 
 
 class Image:
+    """Wrapper for loading images."""
     def __init__(self, path):
         if isinstance(path, self.__class__):
             path = path.path
@@ -98,6 +100,7 @@ class Image:
 
 
 class Dataset:
+    """Collections of images."""
     def __init__(self, path):
         if isinstance(path, list):
             self.data = path
@@ -131,10 +134,15 @@ class Dataset:
         return collections.Counter(i.l3 for i in self.data)
 
     def filter(self, percentage):
+        """Filter dataset on percentage in major class."""
         data = [i for i in self.data if i.percentage >= percentage]
         return self.__class__(data)
 
     def sample_each(self, count, level="l2", classes=None):
+        """Return a count number of images for the given classes in the
+        specified level.  If no classes are given return count for all classes
+        in the given level.
+        """
         data = []
         if classes is None:
             classes = getattr(self, level)
@@ -149,6 +157,7 @@ class Dataset:
         return self.__class__(data)
 
     def save_prediction(self, preds, destination):
+        """Export predictions to csv"""
         pred_json = []
         for img_obj, pred in zip(self.data, preds):
             pred_json.append({"name": img_obj.name, "pred": pred})
@@ -162,6 +171,7 @@ class Dataset:
 
 
 def create_np_data(dataset: Dataset, level="l2"):
+    """Convert image to numpy array of images."""
     imgs = []
     labels = []
     for image_data in dataset.data:
@@ -171,11 +181,13 @@ def create_np_data(dataset: Dataset, level="l2"):
 
 
 def preprocess_svm(x_data, y_data, scaler=None):
+    """Put 2-D image into continuous 1-D sequence."""
     x_data = [np.ravel(i) for i in x_data]
     return x_data, y_data, None
 
 
 def preprocess_randomforest(x_data, y_data, scaler=None):
+    """Scale images between 1 and 0."""
     x_data = [np.ravel(i) for i in x_data]
     if scaler is None:
         scaler = preprocessing.MinMaxScaler()
@@ -184,8 +196,8 @@ def preprocess_randomforest(x_data, y_data, scaler=None):
     return x_data, y_data, scaler
 
 
-
 def batched_generate(dataset, batch_size=100):
+    """Generate batches of data for predicting on the entire dataset."""
     num_files = len(dataset.data)
     for i in range(0, num_files, batch_size):
         start = i
@@ -195,6 +207,7 @@ def batched_generate(dataset, batch_size=100):
 
 
 def count_tables(path, name):
+    """Generate latex tables with counts per Corine class."""
     l1_counts = {}
     for year in ["2018", "2019"]:
         dataset = Dataset(path / year)
